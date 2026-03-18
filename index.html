@@ -5,16 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amoeba Interactive Lab</title>
     <style>
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; background-color: #eef2f3; overflow: hidden; }
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #eef2f3; overflow: hidden; }
         #canvas-container { width: 100vw; height: 100vh; cursor: crosshair; }
+        
         #ui-panel {
-            position: absolute; top: 20px; right: 20px; width: 280px;
-            background: white; padding: 20px; border-radius: 15px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 10;
+            position: absolute; top: 20px; right: 20px; width: 300px;
+            background: rgba(255, 255, 255, 0.95); padding: 25px; border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); z-index: 10;
+            border: 1px solid #d1d8e0; pointer-events: none; /* Allows clicking through panel gaps */
         }
-        #part-name { color: #2c3e50; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
-        #description { color: #7f8c8d; line-height: 1.4; font-size: 14px; }
-        #debug-info { margin-top: 15px; font-family: monospace; font-size: 10px; color: #e74c3c; border-top: 1px solid #eee; pt: 5px; }
+
+        #ui-panel * { pointer-events: auto; } /* Re-enables clicking for buttons/text in panel */
+
+        #part-name { color: #2c3e50; font-size: 24px; font-weight: bold; margin-bottom: 12px; }
+        #description { color: #4b6584; line-height: 1.6; font-size: 15px; }
+        
+        #debug-info { 
+            margin-top: 20px; padding-top: 10px; border-top: 1px dashed #ced6e0;
+            font-family: monospace; font-size: 11px; color: #e74c3c;
+        }
+
         #loader {
             position: absolute; width: 100%; height: 100%; background: #fff;
             display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
@@ -24,13 +34,13 @@
 <body>
 
 <div id="loader">
-    <h2>Microscope Calibrating...</h2>
-    <p>Loading amoeba.glb (37MB)</p>
+    <h2>Initializing Microscope...</h2>
+    <p>Loading 3D Model (37MB)</p>
 </div>
 
 <div id="ui-panel">
     <div id="part-name">Amoeba Proteus</div>
-    <div id="description">Click directly on the 3D body to identify parts.</div>
+    <div id="description">Click directly on a structure to identify its function.</div>
     <div id="debug-info">Last Object ID: None</div>
 </div>
 
@@ -42,22 +52,30 @@
 
 <script>
     const organelleData = [
-        { keys: ['box013', 'membrane', 'skin'], name: 'Cell Membrane', desc: 'The flexible outer boundary of the cell.' },
-        { keys: ['nucleus', 'sphere'], name: 'Nucleus', desc: 'The brain of the cell containing DNA.' },
-        { keys: ['vacuole'], name: 'Vacuole', desc: 'Stores food or pumps out excess water.' }
+        { keys: ['box013', 'membrane', 'skin'], name: 'Cell Membrane', desc: 'A flexible, semi-permeable layer that protects the cell and enables movement.' },
+        { keys: ['nucleus', 'sphere', 'core'], name: 'Nucleus', desc: 'The command center containing DNA, controlling growth and reproduction.' },
+        { keys: ['vacuole', 'contractile'], name: 'Contractile Vacuole', desc: 'Pumps out excess water to maintain the cell\'s internal pressure.' },
+        { keys: ['food', 'digest'], name: 'Food Vacuole', desc: 'Contains digestive enzymes to break down captured food particles.' },
+        { keys: ['pseudopod', 'foot'], name: 'Pseudopodia', desc: 'Temporary extensions of the cytoplasm used for locomotion and feeding.' }
     ];
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xeef2f3);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
-    camera.position.set(0, 20, 50);
+    camera.position.set(0, 30, 60);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
-    scene.add(new THREE.AmbientLight(0xffffff, 1));
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.5);
+    sun.position.set(10, 20, 10);
+    scene.add(sun);
 
     const loader = new THREE.GLTFLoader();
     let model;
@@ -65,61 +83,77 @@
     loader.load('amoeba.glb', (gltf) => {
         model = gltf.scene;
         
-        // --- CRITICAL FIX: Normalize Scale ---
+        // Auto-Scaling for the 37MB file
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 20 / maxDim; // Force the model to be roughly 20 units wide
+        const scale = 30 / maxDim; 
         model.scale.set(scale, scale, scale);
         
-        // Center it
         const center = box.getCenter(new THREE.Vector3());
         model.position.x = -center.x * scale;
         model.position.y = -center.y * scale;
         model.position.z = -center.z * scale;
 
         scene.add(model);
+        model.updateMatrixWorld(true); // Force matrix update for Raycaster
+        
         document.getElementById('loader').style.display = 'none';
-        console.log("Model loaded successfully!");
     });
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
     function onMouseDown(event) {
-        // Calculate mouse position
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        if (event.target.closest('#ui-panel')) return;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
         raycaster.setFromCamera(mouse, camera);
         
-        if (model) {
-            // "true" means check all children, grandchildren, etc.
-            const intersects = raycaster.intersectObjects(scene.children, true);
+        // Check everything in the scene recursively
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        
+        document.getElementById('part-name').innerText = "Scanning...";
+
+        if (intersects.length > 0) {
+            // Find the actual mesh clicked
+            const hit = intersects.find(i => i.object.type === 'Mesh' || i.object.type === 'SkinnedMesh');
             
-            if (intersects.length > 0) {
-                const clickedObj = intersects[0].object;
-                const name = clickedObj.name || "Unnamed Mesh";
-                
+            if (hit) {
+                const clickedObj = hit.object;
+                const name = clickedObj.name || "Unnamed Part";
                 document.getElementById('debug-info').innerText = "Last Object ID: " + name;
 
                 let found = false;
+                const lowerName = name.toLowerCase();
+
                 for (let part of organelleData) {
-                    if (part.keys.some(k => name.toLowerCase().includes(k))) {
+                    if (part.keys.some(k => lowerName.includes(k))) {
                         document.getElementById('part-name').innerText = part.name;
                         document.getElementById('description').innerText = part.desc;
                         found = true;
+                        
+                        // Flash effect
+                        if (clickedObj.material) {
+                            const oldColor = clickedObj.material.color.clone();
+                            clickedObj.material.color.setHex(0x3498db);
+                            setTimeout(() => clickedObj.material.color.copy(oldColor), 400);
+                        }
                         break;
                     }
                 }
 
                 if (!found) {
-                    document.getElementById('part-name').innerText = "Structure Found";
-                    document.getElementById('description').innerText = "Name in file: " + name;
+                    document.getElementById('part-name').innerText = "Structure Detected";
+                    document.getElementById('description').innerText = "This part is named '" + name + "'. Mapping required.";
                 }
-            } else {
-                console.log("Ray missed everything.");
             }
+        } else {
+            document.getElementById('part-name').innerText = "Amoeba Proteus";
+            document.getElementById('debug-info').innerText = "Last Object ID: None (Missed)";
         }
     }
 
