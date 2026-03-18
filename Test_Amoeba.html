@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amoeba Interactive Lab</title>
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background-color: #eef2f3; overflow: hidden; }
+        #canvas-container { width: 100vw; height: 100vh; cursor: crosshair; }
+        #ui-panel {
+            position: absolute; top: 20px; right: 20px; width: 280px;
+            background: white; padding: 20px; border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 10;
+        }
+        #part-name { color: #2c3e50; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
+        #description { color: #7f8c8d; line-height: 1.4; font-size: 14px; }
+        #debug-info { margin-top: 15px; font-family: monospace; font-size: 10px; color: #e74c3c; border-top: 1px solid #eee; pt: 5px; }
+        #loader {
+            position: absolute; width: 100%; height: 100%; background: #fff;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <h2>Microscope Calibrating...</h2>
+    <p>Loading amoeba.glb (37MB)</p>
+</div>
+
+<div id="ui-panel">
+    <div id="part-name">Amoeba Proteus</div>
+    <div id="description">Click directly on the 3D body to identify parts.</div>
+    <div id="debug-info">Last Object ID: None</div>
+</div>
+
+<div id="canvas-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+    const organelleData = [
+        { keys: ['box013', 'membrane', 'skin'], name: 'Cell Membrane', desc: 'The flexible outer boundary of the cell.' },
+        { keys: ['nucleus', 'sphere'], name: 'Nucleus', desc: 'The brain of the cell containing DNA.' },
+        { keys: ['vacuole'], name: 'Vacuole', desc: 'Stores food or pumps out excess water.' }
+    ];
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xeef2f3);
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+    camera.position.set(0, 20, 50);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+    const loader = new THREE.GLTFLoader();
+    let model;
+
+    loader.load('amoeba.glb', (gltf) => {
+        model = gltf.scene;
+        
+        // --- CRITICAL FIX: Normalize Scale ---
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 20 / maxDim; // Force the model to be roughly 20 units wide
+        model.scale.set(scale, scale, scale);
+        
+        // Center it
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.x = -center.x * scale;
+        model.position.y = -center.y * scale;
+        model.position.z = -center.z * scale;
+
+        scene.add(model);
+        document.getElementById('loader').style.display = 'none';
+        console.log("Model loaded successfully!");
+    });
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function onMouseDown(event) {
+        // Calculate mouse position
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        
+        if (model) {
+            // "true" means check all children, grandchildren, etc.
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            
+            if (intersects.length > 0) {
+                const clickedObj = intersects[0].object;
+                const name = clickedObj.name || "Unnamed Mesh";
+                
+                document.getElementById('debug-info').innerText = "Last Object ID: " + name;
+
+                let found = false;
+                for (let part of organelleData) {
+                    if (part.keys.some(k => name.toLowerCase().includes(k))) {
+                        document.getElementById('part-name').innerText = part.name;
+                        document.getElementById('description').innerText = part.desc;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    document.getElementById('part-name').innerText = "Structure Found";
+                    document.getElementById('description').innerText = "Name in file: " + name;
+                }
+            } else {
+                console.log("Ray missed everything.");
+            }
+        }
+    }
+
+    window.addEventListener('mousedown', onMouseDown);
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
