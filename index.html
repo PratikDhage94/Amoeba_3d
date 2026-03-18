@@ -80,26 +80,31 @@
     const loader = new THREE.GLTFLoader();
     let model;
 
-    loader.load('amoeba.glb', (gltf) => {
-        model = gltf.scene;
-        
-        // Auto-Scaling for the 37MB file
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 30 / maxDim; 
-        model.scale.set(scale, scale, scale);
-        
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.x = -center.x * scale;
-        model.position.y = -center.y * scale;
-        model.position.z = -center.z * scale;
-
-        scene.add(model);
-        model.updateMatrixWorld(true); // Force matrix update for Raycaster
-        
-        document.getElementById('loader').style.display = 'none';
-    });
+    loader.load(
+        './amoeba.glb', 
+        (gltf) => {
+            model = gltf.scene;
+            // ... (keep your existing auto-scaling code here) ...
+            scene.add(model);
+            model.updateMatrixWorld(true);
+            document.getElementById('loader').style.display = 'none';
+            console.log("Amoeba Loaded!");
+        },
+        (xhr) => {
+            // This part tracks the 37MB download
+            if (xhr.lengthComputable) {
+                const percentComplete = (xhr.loaded / xhr.total) * 100;
+                console.log('Download Progress: ' + Math.round(percentComplete) + '%');
+                // Update the loader text dynamically
+                document.querySelector('#loader p').innerText = "Downloading: " + Math.round(percentComplete) + "%";
+            }
+        },
+        (error) => {
+            console.error("Critical Load Error:", error);
+            document.querySelector('#loader h2').innerText = "Load Failed";
+            document.querySelector('#loader p').innerText = "Check Console (F12) for details.";
+        }
+    );
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
